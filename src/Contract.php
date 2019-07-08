@@ -18,6 +18,7 @@ use Web3\RequestManagers\RequestManager;
 use Web3\RequestManagers\HttpRequestManager;
 use Web3\Utils;
 use Web3\Eth;
+use Web3\Personal;
 use Web3\Contracts\Ethabi;
 use Web3\Contracts\Types\Address;
 use Web3\Contracts\Types\Boolean;
@@ -89,6 +90,9 @@ class Contract
      */
     protected $eth;
 
+    //Personal方法
+    protected $Personal;
+
     /**
      * ethabi
      * 
@@ -139,6 +143,7 @@ class Contract
         }
         $this->abi = $abiArray;
         $this->eth = new Eth($this->provider);
+        $this->Personal = new Personal($this->provider);
         $this->ethabi = new Ethabi([
             'address' => new Address,
             'bool' => new Boolean,
@@ -429,6 +434,42 @@ class Contract
             $transaction['data'] = '0x' . $this->bytecode . Utils::stripZero($data);
 
             $this->eth->sendTransaction($transaction, function ($err, $transaction) use ($callback){
+                if ($err !== null) {
+                    return call_user_func($callback, $err, null);
+                }
+                return call_user_func($callback, null, $transaction);
+            });
+        }
+    }
+
+    //无需解锁版发代币
+    public function Personal()
+    {
+        if (isset($this->constructor)) {
+            $constructor = $this->constructor;
+            $arguments = func_get_args();
+            $callback = array_pop($arguments);
+
+            $input_count = isset($constructor['inputs']) ? count($constructor['inputs']) : 0;
+            if (count($arguments) < $input_count) {
+                throw new InvalidArgumentException('Please make sure you have put all constructor params and callback.');
+            }
+            if (is_callable($callback) !== true) {
+                throw new \InvalidArgumentException('The last param must be callback function.');
+            }
+            if (!isset($this->bytecode)) {
+                throw new \InvalidArgumentException('Please call bytecode($bytecode) before new().');
+            }
+            $params = array_splice($arguments, 0, $input_count);
+            $data = $this->ethabi->encodeParameters($constructor, $params);
+            $transaction = [];
+
+            if (count($arguments) > 0) {
+                $transaction = $arguments[0];
+            }
+            $transaction['data'] = '0x' . $this->bytecode . Utils::stripZero($data);
+
+            $this->Personal->sendTransaction($transaction,$arguments[1]/*密码*/, function ($err, $transaction) use ($callback){
                 if ($err !== null) {
                     return call_user_func($callback, $err, null);
                 }
